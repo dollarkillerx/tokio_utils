@@ -22,13 +22,13 @@ impl<T> TaskPool<T>
 {
     /// Initialisation Asynchronous task pools
     pub async fn new(size: usize, close_func: T) -> TaskPool<T> {
-        /// Control the number of concurrent
+        // Control the number of concurrent
         let (limit_sender, limit_receiver): (Sender<bool>, Receiver<bool>) = mpsc::channel(size);
 
-        /// Pool
+        // Pool
         let (pool, pool_receiver): (Sender<T>, Receiver<T>) = mpsc::channel(size);
 
-        /// CORE
+        // CORE
         task::spawn(Self::core(limit_sender, limit_receiver, pool_receiver, close_func));
 
         TaskPool {
@@ -39,7 +39,7 @@ impl<T> TaskPool<T>
     /// Issuance of specific tasks
     pub async fn send_task(&self, task: T) {
         if let Some(channel) = &self.pool {
-            channel.send(task).await;
+            channel.send(task).await.unwrap_err();
         }
     }
 
@@ -55,6 +55,7 @@ impl<T> TaskPool<T>
     async fn core(limit_sender: Sender<bool>, limit_receiver: Receiver<bool>, mut pool_receiver: Receiver<T>, close_fn: T) {
         let wg = WaitGroup::new().await;
 
+        // Restricted flow
         let limit_receiver = Arc::new(Mutex::new(limit_receiver));
 
         'lp:
@@ -63,7 +64,17 @@ impl<T> TaskPool<T>
                 val = pool_receiver.recv() => {
                     match val {
                         Some(fun) => {
-                            fun.await;
+                            wg.add(1).await;
+                            limit_sender.send(true).await.unwrap();
+
+                            let limit_receiver = limit_receiver.clone();
+                            let tg = wg.clone();
+                            task::spawn(async move {
+                                fun.await;
+
+                                limit_receiver.lock().await.recv().await;
+                                tg.done().await.unwrap();
+                            });
                         }
                         None => {
                             break 'lp;

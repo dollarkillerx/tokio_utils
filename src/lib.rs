@@ -127,12 +127,12 @@ mod tests {
     #[test]
     fn test_ch3() {
         tokio_test::block_on(async {
-            let r = TaskPool::new(10, async {
+            let task_pool = TaskPool::new(10, async {
                 println!("hello world 1314");
             }).await;
 
-            r.send_task(async {
-                println!("hello world 1314");
+            task_pool.send_task(async {
+                println!("hello world");
             }).await;
 
             tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
