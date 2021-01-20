@@ -1,32 +1,28 @@
+use super::*;
+use std::pin::Pin;
 use std::future::Future;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task;
 use tokio::sync::mpsc::{Sender, Receiver};
-use crate::WaitGroup;
 use std::sync::Arc;
 
+
 /// Asynchronous task pools
-pub struct TaskPool<T>
-    where
-        T: Future + Send + 'static,
-        T::Output: Send + 'static,
+pub struct TaskPool
 {
     /// Pool
-    pool: Option<Sender<T>>,
+    pool: Option<Sender<Pin<Box<dyn Future<Output=()>>>>>,
 }
 
-impl<T> TaskPool<T>
-    where
-        T: Future + Send + 'static,
-        T::Output: Send + 'static,
+impl TaskPool
 {
     /// Initialisation Asynchronous task pools
-    pub async fn new(size: usize, close_func: T) -> TaskPool<T> {
+    pub async fn new(size: usize, close_func: Pin<Box<dyn Future<Output=()>>>) -> TaskPool {
         // Control the number of concurrent
         let (limit_sender, limit_receiver): (Sender<bool>, Receiver<bool>) = mpsc::channel(size);
 
         // Pool
-        let (pool, pool_receiver): (Sender<T>, Receiver<T>) = mpsc::channel(size);
+        let (pool, pool_receiver): (Sender<Pin<Box<dyn Future<Output=()>>>>, Receiver<Pin<Box<dyn Future<Output=()>>>>) = mpsc::channel(size);
 
         // CORE
         task::spawn(Self::core(limit_sender, limit_receiver, pool_receiver, close_func));
@@ -37,7 +33,7 @@ impl<T> TaskPool<T>
     }
 
     /// Issuance of specific tasks
-    pub async fn send_task(&self, task: T) {
+    pub async fn send_task(&self, task: Pin<Box<dyn Future<Output=()>>>) {
         if let Some(channel) = &self.pool {
             channel.send(task).await.unwrap_err();
         }
@@ -52,7 +48,7 @@ impl<T> TaskPool<T>
     }
 
     /// core
-    async fn core(limit_sender: Sender<bool>, limit_receiver: Receiver<bool>, mut pool_receiver: Receiver<T>, close_fn: T) {
+    async fn core(limit_sender: Sender<bool>, limit_receiver: Receiver<bool>, mut pool_receiver: Receiver<Pin<Box<dyn Future<Output=()>>>>, close_fn: Pin<Box<dyn Future<Output=()>>>) {
         let wg = WaitGroup::new().await;
 
         // Restricted flow
@@ -75,6 +71,7 @@ impl<T> TaskPool<T>
                                 limit_receiver.lock().await.recv().await;
                                 tg.done().await.unwrap();
                             });
+                            // future created by async block is not `Send`
                         }
                         None => {
                             break 'lp;

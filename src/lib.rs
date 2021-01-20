@@ -5,7 +5,7 @@ mod pool;
 pub use wait_group::WaitGroup;
 pub use pool::TaskPool;
 
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Sync + Send>>;
+pub type Result<T: Sync + Send> = std::result::Result<T, Box<dyn std::error::Error + Sync + Send>>;
 
 #[cfg(test)]
 mod tests {
@@ -180,7 +180,7 @@ mod tests {
 
     struct DynFn
     {
-        funcs: Vec<Box<dyn std::future::Future<Output=()>>>
+        funcs: Vec<std::pin::Pin<Box<dyn std::future::Future<Output=()>>>>
     }
 
     impl DynFn
@@ -190,19 +190,26 @@ mod tests {
                 funcs: Vec::new()
             }
         }
-        pub async fn run(&self, f: Box<dyn std::future::Future<Output=()>>)
-        {
-            f.await;  //  the trait `std::marker::Unpin` is not implemented for `dyn std::future::Future<Output = ()>`
-        }
     }
 
     #[test]
     fn test_dyn_func() {
         tokio_test::block_on(async {
-            let d = DynFn::new();
-            d.run(Box::new(async {
-                println!("hello world");
-            }));
-        });
+            println!("Hello, world!");
+
+            let mut v=DynFn::new();
+            v.funcs.push(Box::pin(  async  { println!("ok1");    }  ));
+            v.funcs.push(Box::pin(  async  { println!("ok2");    }  ));
+            for item in v.funcs{
+                item.await
+            }
+        })
+    }
+
+    #[test]
+    fn test_pool() {
+        tokio_test::block_on(async {
+
+        })
     }
 }
