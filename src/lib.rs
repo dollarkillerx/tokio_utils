@@ -5,7 +5,7 @@ mod pool;
 pub use wait_group::WaitGroup;
 pub use pool::TaskPool;
 
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Sync + Send>>;
 
 #[cfg(test)]
 mod tests {
@@ -124,18 +124,85 @@ mod tests {
         })
     }
 
-    #[test]
-    fn test_ch3() {
-        tokio_test::block_on(async {
-            let task_pool = TaskPool::new(10, async {
-                println!("hello world 1314");
-            }).await;
+    use std::future::Future;
 
-            task_pool.send_task(async {
+
+    struct Tp<T>
+    {
+        funcs: Vec<T>
+    }
+
+    impl<T> Tp<T>
+        where
+            T: Future + Send + 'static,
+            T::Output: Send + 'static,
+    {
+        fn new() -> Tp<T> {
+            Tp {
+                funcs: Vec::new()
+            }
+        }
+        pub async fn tp(&self, f: T)
+        {
+            f.await;
+        }
+    }
+
+    #[test]
+    fn test_ch1() {
+        tokio_test::block_on(async {
+            let tpf = Tp::new();
+            tpf.tp(async {
                 println!("hello world");
             }).await;
 
-            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-        })
+            // tpf.tp(async {
+            //     println!("hello world2");
+            // }).await;
+        });
+    }
+
+    // #[test]
+    // fn test_ch3() {
+    //     tokio_test::block_on(async {
+    //         let task_pool = TaskPool::new(10, async {
+    //             println!("hello world 1314");
+    //         }).await;
+    //
+    //         // task_pool.send_task(async {
+    //         //     println!("hello world");
+    //         // }).await;
+    //
+    //         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+    //     })
+    // }
+
+
+    struct DynFn
+    {
+        funcs: Vec<Box<dyn std::future::Future<Output=()>>>
+    }
+
+    impl DynFn
+    {
+        fn new() -> DynFn {
+            DynFn {
+                funcs: Vec::new()
+            }
+        }
+        pub async fn run(&self, f: Box<dyn std::future::Future<Output=()>>)
+        {
+            f.await;  //  the trait `std::marker::Unpin` is not implemented for `dyn std::future::Future<Output = ()>`
+        }
+    }
+
+    #[test]
+    fn test_dyn_func() {
+        tokio_test::block_on(async {
+            let d = DynFn::new();
+            d.run(Box::new(async {
+                println!("hello world");
+            }));
+        });
     }
 }
